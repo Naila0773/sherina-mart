@@ -13,8 +13,9 @@ use App\Models\SaleTransaction;
 class Product extends Model
 {
     use HasUuids;
-    protected $fillable = ["code", "name"];
-    protected $casts = ["code" => "integer", "name" => "string", "price" => "integer"];
+    // [UPDATED] Added 'stock' to fillable and casts for Stock Management feature
+    protected $fillable = ["code", "name", "stock"];
+    protected $casts = ["code" => "integer", "name" => "string", "price" => "integer", "stock" => "integer"];
 
     public function variety(): BelongsTo
     {
