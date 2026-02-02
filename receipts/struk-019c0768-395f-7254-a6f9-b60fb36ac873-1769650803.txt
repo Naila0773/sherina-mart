@@ -1,0 +1,16 @@
+==============================
+      STRUK BELANJA
+      MAJU MUNDUR MART
+    Jl. Yang di ridhoi No. 911
+==============================
+Tanggal : 29-01-2026 01:39:56
+Kasir   : Naia
+Barang  : Telur
+Harga   : Rp 2.000
+Jumlah  : 2
+Total   : Rp 4.000
+Tunai   : Rp 10.000
+Kembali : Rp 6.000
+==============================
+Terima Kasih Telah Berbelanja!
+==============================
