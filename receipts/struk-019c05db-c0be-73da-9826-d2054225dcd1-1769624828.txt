@@ -1,0 +1,16 @@
+==============================
+      STRUK BELANJA
+      MAJU MUNDUR MART
+    Jalan yang tepat No. 109
+==============================
+Tanggal : 28-01-2026 18:26:53
+Kasir   : Naia
+Barang  : Fanta
+Harga   : Rp 4.000
+Jumlah  : 2
+Total   : Rp 8.000
+Tunai   : Rp 20.000
+Kembali : Rp 12.000
+==============================
+Terima Kasih Telah Berbelanja!
+==============================

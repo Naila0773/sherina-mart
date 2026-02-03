@@ -1,0 +1,14 @@
+==============================
+      STRUK BELANJA
+      SHERINA MART
+    Jalan yang tepat No. 109
+==============================
+Tanggal : 28-01-2026 18:00:51
+Kasir   : Naia
+Barang  : Chiki Balls
+Harga   : Rp 1.000
+Jumlah  : 8
+Total   : Rp 8.000
+==============================
+Terima Kasih Telah Berbelanja!
+==============================

@@ -1,0 +1,16 @@
+==============================
+      STRUK BELANJA
+      MAJU MUNDUR MART
+    Jl. Yang di ridhoi No. 911
+==============================
+Tanggal : 29-01-2026 00:40:32
+Kasir   : Naia
+Barang  : Fanta
+Harga   : Rp 4.000
+Jumlah  : 1
+Total   : Rp 4.000
+Tunai   : Rp 6.000
+Kembali : Rp 2.000
+==============================
+Terima Kasih Telah Berbelanja!
+==============================

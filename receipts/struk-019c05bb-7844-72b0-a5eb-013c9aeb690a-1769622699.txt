@@ -1,0 +1,14 @@
+==============================
+      STRUK BELANJA
+      SHERINA MART
+    Jalan yang tepat No. 109
+==============================
+Tanggal : 28-01-2026 17:51:38
+Kasir   : Naia
+Barang  : Telur
+Harga   : Rp 2
+Jumlah  : 4
+Total   : Rp 8
+==============================
+Terima Kasih Telah Berbelanja!
+==============================

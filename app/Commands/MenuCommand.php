@@ -9,6 +9,9 @@ use App\Models\Category;
 use App\Models\Variety;
 use App\Models\Product;
 use App\Models\SaleTransaction;
+use App\Services\ReceiptService;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Artisan;
 
 class MenuCommand extends Command
 {
@@ -32,6 +35,13 @@ class MenuCommand extends Command
      */
     public function handle()
     {
+        // Auto-fix for database schema
+        if (!Schema::hasColumn('products', 'stock')) {
+            $this->info('Mengupdate database...');
+            Artisan::call('migrate', ['--force' => true]);
+            $this->info('Database berhasil diupdate!');
+        }
+
         $title = "Selamat di Applikasi Kami\nSilahkan Pilih Menu Berikut :";
         $options = [
             "Pilihan 1: Transaksi Pembelian Barang",
@@ -50,274 +60,306 @@ class MenuCommand extends Command
             "Pilihan 14 : Daftar Penjualan Barang",
         ];
 
-        $option = $this->menu($title, $options)
-            ->setForegroundColour("green")
-            ->setBackgroundColour("black")
-            ->setWidth(200)
-            ->setPadding(10)
-            ->setMargin(5)
-            ->setExitButtonText("Abort")
-            // remove exit button with
-            // ->disableDefaultItems()
-            ->setTitleSeparator("*-")
-            // ->addLineBreak('<3', 2)
-            // ->addStaticItem('AREA 2')
-            ->open();
+        while (true) {
+            $option = $this->menu($title, $options)
+                ->setForegroundColour("green")
+                ->setBackgroundColour("black")
+                ->setWidth(200)
+                ->setPadding(10)
+                ->setMargin(5)
+                ->setExitButtonText("Abort")
+                // remove exit button with
+                // ->disableDefaultItems()
+                ->setTitleSeparator("*-")
+                // ->addLineBreak('<3', 2)
+                // ->addStaticItem('AREA 2')
+                ->open();
 
-        // $this->info("Anda Memilih Pilihan : {$option}");
-        if ($option == 0) {
-            $sale = new SaleTransaction;
-            // $this->info("Anda Memilih Pilihan : {$option} Transaksi Pembelian Barang");
-            $products = Product::all()->pluck('name', 'id')->toArray();
-            $sale->product_id = select(
-                label: 'Pilih Barang:',
-                options: $products,
-            );
-            $choosen_product = Product::find($sale->product_id);
-            $sale->price = $choosen_product->price;
-            $sale->quantity = (int) $this->ask("Masukkan Jumlah Barang : ");
+            if ($option === null) {
+                break;
+            }
 
-            // [UPDATED] Added Stock Check Logic
-            // Prevent transaction if requested quantity exceeds available stock
-            if ($sale->quantity > $choosen_product->stock) {
-                $this->error("Stok tidak cukup! Stok saat ini: {$choosen_product->stock}");
-            } else {
-                if ($sale->save()) {
-                    // [UPDATED] Decrement Stock
-                    // Automatically reduce stock after successful transaction
-                    $choosen_product->decrement('stock', $sale->quantity);
+            // $this->info("Anda Memilih Pilihan : {$option}");
+            if ($option == 0) {
+                $sale = new SaleTransaction;
+                // $this->info("Anda Memilih Pilihan : {$option} Transaksi Pembelian Barang");
+                $products = Product::all()->pluck('name', 'id')->toArray();
+
+                if (empty($products)) {
+                    $this->error("Belum ada barang yang tersedia! Silahkan tambah barang terlebih dahulu di menu 'Tambah Barang'.");
+                    return; // Or continue/break depending on loop structure, but handle() implies return exits the command which is fine, or arguably we just break the current if block. 
+                    // Wait, handle() is one execution. Returning exits the command. 
+                    // But this is inside an if/else block. Returning is fine as it exits the command.
+                }
+
+                $sale->product_id = select(
+                    label: 'Pilih Barang:',
+                    options: $products,
+                );
+                $choosen_product = Product::find($sale->product_id);
+                $sale->price = $choosen_product->price;
+                $sale->quantity = (int) $this->ask("Masukkan Jumlah Barang : ");
+
+                // [UPDATED] Added Stock Check Logic
+                // Prevent transaction if requested quantity exceeds available stock
+                if ($sale->quantity > $choosen_product->stock) {
+                    $this->error("Stok tidak cukup! Stok saat ini: {$choosen_product->stock}");
+                } else {
+                    if ($sale->save()) {
+                        // [UPDATED] Decrement Stock
+                        // Automatically reduce stock after successful transaction
+                        $choosen_product->decrement('stock', $sale->quantity);
+                        $this->notify("Success", "data berhasil disimpan");
+                        $payment = $sale->price * $sale->quantity;
+                        $this->info("Total Bayar: " . number_format($payment, 0, ',', '.'));
+
+                        $payAmount = 0;
+                        while (true) {
+                            $payInput = $this->ask("Masukkan Uang Bayar : ");
+                            $payAmount = (int) str_replace('.', '', $payInput);
+
+                            if ($payAmount >= $payment) {
+                                break;
+                            }
+                            $this->error("Uang tidak cukup! Total yang harus dibayar: " . number_format($payment, 0, ',', '.'));
+                        }
+
+                        // Generate Receipt
+                        $receipt = ReceiptService::generate($sale, $payAmount);
+                        $this->line($receipt);
+                    } else {
+                        $this->notify("Failed", "data gagal disimpan");
+                    }
+                }
+            } else if ($option == 1) {
+                $headers = ['kode', 'nama', 'dibuat', 'diubah'];
+                $data = Category::all()->map(function ($item) {
+                    return [
+                        'kode' => $item->code,
+                        'nama' => $item->name,
+                        'dibuat' => $item->created_at,
+                        'diubah' => $item->updated_at,
+                    ];
+                })->toArray();
+                $this->table($headers, $data);
+            } else if ($option == 2) {
+                $this->info("Anda Memilih Pilihan : {$option} Tambah Kategori Barang");
+                $category = new Category();
+                $category->code = (int) $this->ask("Masukkan Kode Kategori : ");
+                $category->name = $this->ask("Masukkan Nama Kategori : ");
+                if ($category->save()) {
                     $this->notify("Success", "data berhasil disimpan");
-                    $payment = $sale->price * $sale->quantity;
-                    $this->info("Total Bayar: {$payment}");
                 } else {
                     $this->notify("Failed", "data gagal disimpan");
                 }
-            }
-        } else if ($option == 1) {
-            $headers = ['kode', 'nama', 'dibuat', 'diubah'];
-            $data = Category::all()->map(function ($item) {
-                return [
-                    'kode' => $item->code,
-                    'nama' => $item->name,
-                    'dibuat' => $item->created_at,
-                    'diubah' => $item->updated_at,
-                ];
-            })->toArray();
-            $this->table($headers, $data);
-        } else if ($option == 2) {
-            $this->info("Anda Memilih Pilihan : {$option} Tambah Kategori Barang");
-            $category = new Category();
-            $category->code = (int) $this->ask("Masukkan Kode Kategori : ");
-            $category->name = $this->ask("Masukkan Nama Kategori : ");
-            if ($category->save()) {
-                $this->notify("Success", "data berhasil disimpan");
-            } else {
-                $this->notify("Failed", "data gagal disimpan");
-            }
 
-        } else if ($option == 3) {
-            $this->info("Anda Memilih Pilihan : {$option} Ubah Kategori Barang");
-            $code = (int) $this->ask("Masukkan Kode Kategori yang akan diubah : ");
+            } else if ($option == 3) {
+                $this->info("Anda Memilih Pilihan : {$option} Ubah Kategori Barang");
+                $code = (int) $this->ask("Masukkan Kode Kategori yang akan diubah : ");
 
-            // [UPDATED] Added Null Check for Category Edit
-            // Prevents crash if category code does not exist
-            $category = Category::where('code', $code)->first();
+                // [UPDATED] Added Null Check for Category Edit
+                // Prevents crash if category code does not exist
+                $category = Category::where('code', $code)->first();
 
-            if ($category) {
-                $category->code = (int) $this->ask("Masukkan Kode Kategori : ", (string) $category->code);
-                $category->name = $this->ask("Masukkan Nama Kategori : ", $category->name);
-                if ($category->save()) {
-                    $this->notify("Success", "data berhasil diubah");
+                if ($category) {
+                    $category->code = (int) $this->ask("Masukkan Kode Kategori : ", (string) $category->code);
+                    $category->name = $this->ask("Masukkan Nama Kategori : ", $category->name);
+                    if ($category->save()) {
+                        $this->notify("Success", "data berhasil diubah");
+                    } else {
+                        $this->notify("Failed", "data gagal diubah");
+                    }
                 } else {
-                    $this->notify("Failed", "data gagal diubah");
+                    $this->error("Kategori dengan kode {$code} tidak ditemukan!");
                 }
-            } else {
-                $this->error("Kategori dengan kode {$code} tidak ditemukan!");
-            }
-        } else if ($option == 4) {
-            $this->info("Anda Memilih Pilihan : {$option} Hapus Kategori Barang");
-            $code = (int) $this->ask("Masukkan Kode Kategori yang akan dihapus : ");
-            $category = Category::where('code', $code)->first();
+            } else if ($option == 4) {
+                $this->info("Anda Memilih Pilihan : {$option} Hapus Kategori Barang");
+                $code = (int) $this->ask("Masukkan Kode Kategori yang akan dihapus : ");
+                $category = Category::where('code', $code)->first();
 
-            if ($category) {
-                if ($category->delete()) {
-                    $this->notify("Success", "data berhasil dihapus");
+                if ($category) {
+                    if ($category->delete()) {
+                        $this->notify("Success", "data berhasil dihapus");
+                    } else {
+                        $this->notify("Failed", "data gagal dihapus");
+                    }
                 } else {
-                    $this->notify("Failed", "data gagal dihapus");
+                    $this->error("Kategori dengan kode {$code} tidak ditemukan!");
                 }
-            } else {
-                $this->error("Kategori dengan kode {$code} tidak ditemukan!");
-            }
-        } else if ($option == 5) {
-            $this->info("Anda Memilih Pilihan : {$option} Daftar Jenis Barang");
-            $headers = ['kode', 'nama', 'dibuat', 'diubah'];
-            $data = Variety::all()->map(function ($item) {
-                return [
-                    'kode' => $item->code,
-                    'nama' => $item->name,
-                    'dibuat' => $item->created_at,
-                    'diubah' => $item->updated_at,
-                ];
-            })->toArray();
-            $this->table($headers, $data);
-        } else if ($option == 6) {
-            $this->info("Anda Memilih Pilihan : {$option} Tambah Jenis Barang");
-            $variety = new Variety();
-            $variety->code = (int) $this->ask("Masukkan Kode Jenis : ");
-            $variety->name = $this->ask("Masukkan Nama Jenis : ");
-            if ($variety->save()) {
-                $this->notify("Success", "data berhasil disimpan");
-            } else {
-                $this->notify("Failed", "data gagal disimpan");
-            }
-        } else if ($option == 7) {
-            $this->info("Anda Memilih Pilihan : {$option} Ubah Jenis Barang");
-            $code = (int) $this->ask("Masukkan Kode Jenis yang akan diubah : ");
-
-            // [UPDATED] Added Null Check for Variety Edit
-            // Prevents crash if variety code does not exist
-            $variety = Variety::where('code', $code)->first();
-
-            if ($variety) {
-                $variety->code = (int) $this->ask("Masukkan Kode Jenis : ", (string) $variety->code);
-                $variety->name = $this->ask("Masukkan Nama Jenis : ", $variety->name);
+            } else if ($option == 5) {
+                $this->info("Anda Memilih Pilihan : {$option} Daftar Jenis Barang");
+                $headers = ['kode', 'nama', 'dibuat', 'diubah'];
+                $data = Variety::all()->map(function ($item) {
+                    return [
+                        'kode' => $item->code,
+                        'nama' => $item->name,
+                        'dibuat' => $item->created_at,
+                        'diubah' => $item->updated_at,
+                    ];
+                })->toArray();
+                $this->table($headers, $data);
+            } else if ($option == 6) {
+                $this->info("Anda Memilih Pilihan : {$option} Tambah Jenis Barang");
+                $variety = new Variety();
+                $variety->code = (int) $this->ask("Masukkan Kode Jenis : ");
+                $variety->name = $this->ask("Masukkan Nama Jenis : ");
                 if ($variety->save()) {
-                    $this->notify("Success", "data berhasil diubah");
+                    $this->notify("Success", "data berhasil disimpan");
                 } else {
-                    $this->notify("Failed", "data gagal diubah");
+                    $this->notify("Failed", "data gagal disimpan");
                 }
-            } else {
-                $this->error("Jenis dengan kode {$code} tidak ditemukan!");
-            }
-        } else if ($option == 8) {
-            $this->info("Anda Memilih Pilihan : {$option} Hapus Jenis Barang");
-            $code = (int) $this->ask("Masukkan Kode Jenis yang akan dihapus : ");
-            $variety = Variety::where('code', $code)->first();
+            } else if ($option == 7) {
+                $this->info("Anda Memilih Pilihan : {$option} Ubah Jenis Barang");
+                $code = (int) $this->ask("Masukkan Kode Jenis yang akan diubah : ");
 
-            if ($variety) {
-                if ($variety->delete()) {
-                    $this->notify("Success", "data berhasil dihapus");
+                // [UPDATED] Added Null Check for Variety Edit
+                // Prevents crash if variety code does not exist
+                $variety = Variety::where('code', $code)->first();
+
+                if ($variety) {
+                    $variety->code = (int) $this->ask("Masukkan Kode Jenis : ", (string) $variety->code);
+                    $variety->name = $this->ask("Masukkan Nama Jenis : ", $variety->name);
+                    if ($variety->save()) {
+                        $this->notify("Success", "data berhasil diubah");
+                    } else {
+                        $this->notify("Failed", "data gagal diubah");
+                    }
                 } else {
-                    $this->notify("Failed", "data gagal dihapus");
+                    $this->error("Jenis dengan kode {$code} tidak ditemukan!");
                 }
-            } else {
-                $this->error("Jenis dengan kode {$code} tidak ditemukan!");
-            }
+            } else if ($option == 8) {
+                $this->info("Anda Memilih Pilihan : {$option} Hapus Jenis Barang");
+                $code = (int) $this->ask("Masukkan Kode Jenis yang akan dihapus : ");
+                $variety = Variety::where('code', $code)->first();
 
-        } else if ($option == 9) {
-            $this->info("Anda Memilih Pilihan : {$option} Daftar Barang");
-            $this->info("Anda Memilih Pilihan : {$option} Daftar Barang");
+                if ($variety) {
+                    if ($variety->delete()) {
+                        $this->notify("Success", "data berhasil dihapus");
+                    } else {
+                        $this->notify("Failed", "data gagal dihapus");
+                    }
+                } else {
+                    $this->error("Jenis dengan kode {$code} tidak ditemukan!");
+                }
 
-            // [UPDATED] Added 'stok' column to header and data map
-            $headers = ['kode', 'nama', 'harga', 'stok', 'kategori', 'jenis', 'dibuat', 'diubah'];
-            $data = Product::all()->map(function ($item) {
-                return [
-                    'kode' => $item->code,
-                    'nama' => $item->name,
-                    'harga' => $item->price,
-                    'stok' => $item->stock,
-                    'kategori' => $item->category->name,
-                    'jenis' => $item->variety->name,
-                    'dibuat' => $item->created_at,
-                    'diubah' => $item->updated_at,
-                ];
-            })->toArray();
-            $this->table($headers, $data);
-        } else if ($option == 10) {
-            $product = new Product();
-            $this->info("Anda Memilih Pilihan : {$option} Tambah Barang");
-            $categories = Category::all()->pluck('name', 'id')->toArray();
-            $product->category_id = select(
-                label: 'Pilih Kategori Barang:',
-                options: $categories,
-            );
+            } else if ($option == 9) {
+                $this->info("Anda Memilih Pilihan : {$option} Daftar Barang");
+                $this->info("Anda Memilih Pilihan : {$option} Daftar Barang");
 
-            $varieties = Variety::all()->pluck('name', 'id')->toArray();
-            $product->variety_id = select(
-                label: 'Pilih Kategori Barang:',
-                options: $varieties,
-            );
-
-            $product->code = (int) $this->ask("Masukkan Kode Barang : ");
-            $product->name = $this->ask("Masukkan Nama Barang : ");
-            $product->price = (int) $this->ask("Masukkan Harga Barang : ");
-
-            // [UPDATED] Added Stock Input for New Products
-            $product->stock = (int) $this->ask("Masukkan Stok Awal Barang : ", "0");
-            if ($product->save()) {
-                $this->notify("Success", "data berhasil disimpan");
-            } else {
-                $this->notify("Failed", "data gagal disimpan");
-            }
-
-        } else if ($option == 11) {
-            $this->info("Anda Memilih Pilihan : {$option} Ubah Barang");
-            $code = (int) $this->ask("Masukkan Kode Barang yang akan diubah : ");
-            $product = Product::where('code', $code)->first();
-
-            // [UPDATED] Added Null Check and Stock Update for Product Edit
-            if ($product) {
+                // [UPDATED] Added 'stok' column to header and data map
+                $headers = ['kode', 'nama', 'harga', 'stok', 'kategori', 'jenis', 'dibuat', 'diubah'];
+                $data = Product::all()->map(function ($item) {
+                    return [
+                        'kode' => $item->code,
+                        'nama' => $item->name,
+                        'harga' => $item->price,
+                        'stok' => $item->stock,
+                        'kategori' => $item->category->name,
+                        'jenis' => $item->variety->name,
+                        'dibuat' => $item->created_at,
+                        'diubah' => $item->updated_at,
+                    ];
+                })->toArray();
+                $this->table($headers, $data);
+            } else if ($option == 10) {
+                $product = new Product();
+                $this->info("Anda Memilih Pilihan : {$option} Tambah Barang");
                 $categories = Category::all()->pluck('name', 'id')->toArray();
                 $product->category_id = select(
-                    label: 'Pilih Kategori Barang Baru:',
+                    label: 'Pilih Kategori Barang:',
                     options: $categories,
-                    default: $product->category_id
                 );
 
                 $varieties = Variety::all()->pluck('name', 'id')->toArray();
                 $product->variety_id = select(
-                    label: 'Pilih Jenis Barang Baru:',
+                    label: 'Pilih Kategori Barang:',
                     options: $varieties,
-                    default: $product->variety_id
                 );
 
-                $product->code = (int) $this->ask("Masukkan Kode Barang Baru : ", (string) $product->code);
-                $product->name = $this->ask("Masukkan Nama Barang Baru : ", $product->name);
-                $product->price = (int) $this->ask("Masukkan Harga Barang Baru : ", (string) $product->price);
-                $product->stock = (int) $this->ask("Masukkan Stok Baru : ", (string) $product->stock);
+                $product->code = (int) $this->ask("Masukkan Kode Barang : ");
+                $product->name = $this->ask("Masukkan Nama Barang : ");
+                $product->price = (int) str_replace('.', '', $this->ask("Masukkan Harga Barang : "));
 
+                // [UPDATED] Added Stock Input for New Products
+                $product->stock = (int) $this->ask("Masukkan Stok Awal Barang : ", "0");
                 if ($product->save()) {
-                    $this->notify("Success", "data berhasil diubah");
+                    $this->notify("Success", "data berhasil disimpan");
                 } else {
-                    $this->notify("Failed", "data gagal diubah");
+                    $this->notify("Failed", "data gagal disimpan");
                 }
-            } else {
-                $this->error("Barang dengan kode {$code} tidak ditemukan!");
+
+            } else if ($option == 11) {
+                $this->info("Anda Memilih Pilihan : {$option} Ubah Barang");
+                $code = (int) $this->ask("Masukkan Kode Barang yang akan diubah : ");
+                $product = Product::where('code', $code)->first();
+
+                // [UPDATED] Added Null Check and Stock Update for Product Edit
+                if ($product) {
+                    $categories = Category::all()->pluck('name', 'id')->toArray();
+                    $product->category_id = select(
+                        label: 'Pilih Kategori Barang Baru:',
+                        options: $categories,
+                        default: $product->category_id
+                    );
+
+                    $varieties = Variety::all()->pluck('name', 'id')->toArray();
+                    $product->variety_id = select(
+                        label: 'Pilih Jenis Barang Baru:',
+                        options: $varieties,
+                        default: $product->variety_id
+                    );
+
+                    $product->code = (int) $this->ask("Masukkan Kode Barang Baru : ", (string) $product->code);
+                    $product->name = $this->ask("Masukkan Nama Barang Baru : ", $product->name);
+                    $priceInput = $this->ask("Masukkan Harga Barang Baru : ", (string) $product->price);
+                    $product->price = (int) str_replace('.', '', $priceInput);
+                    $product->stock = (int) $this->ask("Masukkan Stok Baru : ", (string) $product->stock);
+
+                    if ($product->save()) {
+                        $this->notify("Success", "data berhasil diubah");
+                    } else {
+                        $this->notify("Failed", "data gagal diubah");
+                    }
+                } else {
+                    $this->error("Barang dengan kode {$code} tidak ditemukan!");
+                }
+
+            } else if ($option == 12) {
+                $this->info("Anda Memilih Pilihan : {$option} Hapus Barang");
+                $code = (int) $this->ask("Masukkan Kode Barang yang akan dihapus : ");
+                $product = Product::where('code', $code)->first();
+
+                if ($product) {
+                    if ($product->delete()) {
+                        $this->notify("Success", "data berhasil dihapus");
+                    } else {
+                        $this->notify("Failed", "data gagal dihapus");
+                    }
+                } else {
+                    $this->error("Barang dengan kode {$code} tidak ditemukan!");
+                }
+            } else if ($option == 13) {
+                $headers = ['kode', 'nama', 'harga', 'jumlah', 'bayar', 'dibuat', 'diubah'];
+                $data = SaleTransaction::all()->map(function ($item) {
+                    return [
+                        'kode' => $item->product->code,
+                        'nama' => $item->product->name,
+                        'harga' => $item->product->price,
+                        'jumlah' => $item->quantity,
+                        'jumlah bayar' => $item->quantity * $item->product->price,
+                        'dibuat' => $item->created_at,
+                        'diubah' => $item->updated_at,
+                    ];
+                })->toArray();
+                $this->table($headers, $data);
+
             }
 
-        } else if ($option == 12) {
-            $this->info("Anda Memilih Pilihan : {$option} Hapus Barang");
-            $code = (int) $this->ask("Masukkan Kode Barang yang akan dihapus : ");
-            $product = Product::where('code', $code)->first();
-
-            if ($product) {
-                if ($product->delete()) {
-                    $this->notify("Success", "data berhasil dihapus");
-                } else {
-                    $this->notify("Failed", "data gagal dihapus");
-                }
-            } else {
-                $this->error("Barang dengan kode {$code} tidak ditemukan!");
-            }
-        } else if ($option == 13) {
-            $headers = ['kode', 'nama', 'harga', 'jumlah', 'bayar', 'dibuat', 'diubah'];
-            $data = SaleTransaction::all()->map(function ($item) {
-                return [
-                    'kode' => $item->product->code,
-                    'nama' => $item->product->name,
-                    'harga' => $item->product->price,
-                    'jumlah' => $item->quantity,
-                    'jumlah bayar' => $item->quantity * $item->product->price,
-                    'dibuat' => $item->created_at,
-                    'diubah' => $item->updated_at,
-                ];
-            })->toArray();
-            $this->table($headers, $data);
-
-        } else {
-
-            $this->info("Terimakasih telah menggunakan applikasi kami.");
+            $this->newLine();
+            $this->ask('Tekan Enter untuk melanjutkan...');
         }
+
+        $this->info("Terimakasih telah menggunakan aplikasi kami.");
 
     }
 

@@ -1,0 +1,14 @@
+==============================
+      STRUK BELANJA
+      SHERINA MART
+    Jalan yang tepat No. 109
+==============================
+Tanggal : 28-01-2026 17:54:35
+Kasir   : Naia
+Barang  : Sereal
+Harga   : Rp 20.000
+Jumlah  : 2
+Total   : Rp 40.000
+==============================
+Terima Kasih Telah Berbelanja!
+==============================
